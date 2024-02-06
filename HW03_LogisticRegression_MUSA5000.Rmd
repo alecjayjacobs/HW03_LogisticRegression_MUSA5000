@@ -1,0 +1,631 @@
+---
+title: "HW03 - LOGISTIC REGRESSION TO PREDICT DRUNK DRIVING ACCIDENTS - MUSA 5000"
+output: 
+  html_document:
+    keep_md: yes
+    toc: yes
+    theme: flatly
+    toc_float: yes
+    code_folding: hide
+    number_sections: no
+    css: style.css
+---
+
+<br>
+
+**Authors: Nohman Akhtari, Alec Jacobs, Trevor Kapuvari | 12.17.2023**
+
+Course: Statistical And Data Mining Methods For Urban Spatial Analytics
+
+<br>
+
+
+# **INTRODUCTION** 
+
+<br>
+
+Our study investigates accidents associated with drunk driving in Philadelphia, aiming to identify key predictors using a dataset provided by the Pennsylvania Department of Transportation. The dataset draws upon 53,260 total crashes compiled between 2008-2012 and is publicly available on OpenDataPhilly. The geocoded nature of the crash data allows for spatial joining with the 2000 Census block group level dataset used in our first two assignments, providing additional information such as median household income and the percentage of individuals with at least a bachelor’s degree in the block group where each crash occurred.
+
+To focus on meaningful trends, our analysis excludes 9,896 crash locations outside of residential areas, which often have skewed demographics and lack relevant data. This refinement results in a dataset comprising of 43,364 crashes within Philadelphia's residential neighborhoods. Further, our study employs a regression analysis, using the binary variable "DRINKING_D" as the dependent variable - indicating if the driver was drunk or sober. The logistic regression analysis uses a combination of binary and continuous variables, with binary variables represented by a 1 for “Yes” and 0 for “No”. Binary predictors include factors like fatalities, vehicle overturns, cell phone use, speeding, aggressive driving, and driver age (16-17 or 65+). Continuous predictors include the percentage of residents with bachelor's degrees and median household income within the crash location's block group.
+
+Ultimately, this investigation sheds light on the critical issue of drunk driving, a national problem claiming lives daily, as reported by the US Department of Transportation. By understanding the predictors associated with drunk driving accidents in Philadelphia, we gain valuable insights into the nature of these incidents and the potential outcomes linked to specific driver behaviors. This study, focusing on residential areas and utilizing data analytics along with statistical procedures, contributes to a deeper understanding of drunk driving accidents in Philadelphia.
+
+```{r}
+
+library(kableExtra)
+
+data <- data.frame(
+  BINARY_VARIABLE = c("FATAL_OR_M", "OVERTURNED", "CELL_PHONE", "SPEEDING", "AGGRESSIVE", "DRIVER1617", "DRIVER65PLUS", "PCTBACHMOR", "MEDHHINC"),
+  
+  DESCRIPTION = c(
+    "Whether the crash resulted in a fatality or major injury.",
+    "Whether the crash involved an overturned vehicle.",
+    "Whether the crash involved a driver using a cell phone.",
+    "Whether the crash involved speeding.",
+    "Whether the crash involved aggressive driving.",
+    "Whether the crash involved a driver who is 16 or 17 years old.",
+    "Whether the crash involved a driver who is 65+ years old.",
+    "Percent of individuals 25+ years old with at least a bachelor’s degree in the block group.",
+    "Median household income in the block group."),
+  
+  SPECULATION = c(
+    "Correlates with drunk driving due to reported fatalities or major injuries.",
+    "More likely if the driver is drunk due to the seriousness of the incident.",
+    "Associated with drunk drivers due to potential carelessness and distraction.",
+    "Associated with drunk drivers due to reckless or uninhibited behaviors.",
+    "Associated with drunk drivers for the same reasons as SPEEDING.",
+    "Associated with drunk drivers due to limited experience or low tolerance for alcohol.",
+    "Associated with drunk drivers due to low tolerance for alcohol.",
+    "Associated with lower odds for crashes involving drunk drivers if the area has a higher education level.",
+    "Associated with lower odds for crashes involving drunk drivers if residents have a higher disposable income."))
+
+kable(data, format = "html") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+<br>
+
+# **METHODS**
+
+<br>
+
+## TRANSITIONING FROM OLS REGRESSION TO LOGISTIC REGRESSION (LR)
+
+<br>
+
+For this study, we use LR to build our predictive model. One might question why Standard Ordinary Least Squares regression (SOR) is not deemed adequate for our purposes. SOR with a dependent binary variable $Y$ runs into several issues. Since $Y$ is binary, it can only take values that are 0 or 1. However, SOR is continuous and therefore could result in values that are not 0 or 1, violating the very nature of the type of the binary variable $Y$. Additionally, the interpretation of $\beta$ coefficients becomes difficult as a one unit increase in a coefficient could lead to an increase in $Y$ that is not 0 or 1. This again would make no sense.
+
+One workaround would be that instead of predicting $Y$ directly, we regress that probability that $Y$ is 1 on the independent variables, or in mathematical terms, $P(Y = 1 \mid X = x_1, \ldots, x_n)$ where $X$ is the set of $n \in \mathbb{N}$ predictors. This would allow for all continuous values between 0 and 1. However, we again run into the issue that the range of $P(Y=1)$ can exceed 1 or be less than 0. 
+
+Once more, we can create an alternative by including a translator function for $P(Y=1)$ that "squeezes" any value that is not in $[0,1]$ into this range. However, this solution is not without its limitations. Firstly, the choice of the translator function can affect the values for $P(Y=1).$ Secondly, any translator function must potentially have the capacity to deal with extreme outliers. This implies that these functions often only marginally changes values of $P(Y=1)$ that are within $[0,1]$ whereas it has to greatly squeeze outliers. This satisfies the quality of the model on the extreme ends but is a necessary limitation to make logistic regression work.
+
+In statistical literature, two types of translation functions are generally used - the probit and logit function. We would like to mention the presence of multinomial logistic regression for ordinal variables; however, this particular technique will not be addressed in our paper. Our focus will be on the logit function. This choice allows us to delve more deeply into the specifics of the logit model, contributing to a more comprehensive understanding of its application in our study.
+
+<br>
+
+## ODDS RATIO AND THE LOGIT FUNCTION
+
+<br>
+
+Before we dive into the logit function, we first introduce the concept of odds. Odds can be calculated as 
+
+$$
+\text{Odds = } \frac{\text{# of desireable outcomes}}{\text{# of undesireable outcomes}}
+$$
+and for an event $Y=1$ we get that 
+
+$$
+\text{Odds}(Y = 1) = \frac{\text{Prob}(Y = 1)}{\text{Prob}(Y = 0)} =\frac{\text{Prob}(Y = 1)}{1-\text{Prob}(Y = 1)} = \frac{p}{1-p}
+$$
+where $p = \text{Prob}(Y = 1).$ An adds ratio greater equal to 1 would indicate that $p \geq 1-p$ and vice versa, meaning that the event $Y$ is more or equally likely to occur than not to occur at all.
+
+Taking the log of the odds ratio:
+
+$$
+\text{Logistic Function = } \ln(\frac{p}{1-p})
+$$
+we get the so-called Logistic Function (LF). 
+
+Two crucial points warrant attention here. First, we see that the the variable inside the log is not $P(Y = 1),$ meaning that we don't directly get our desired result out of the LF. Secondly, LF is not necessarily in $[0,1].$ We will deal with both problems after a short explanation of maximum likelihood estimation.
+
+<br>
+
+## MAXIMUM LIKELIHOOD ESTIMATION (MLE) AND $\beta$ CEOFFICIENTS
+
+<br>
+
+In OLS regression, we used the least squares method to obtain the best fit line in the $k+1$ plane where $k$ is the number of predictors. However, LF spreads the values of our dependent variable from minus infinity to plus infinity, implying that also the errors can range from minus infinity to plus infinity. This renders the least squares method ineffective to find the best fit curve in logistic regression. We therefore use the Maximum Likelihood Estimation (MLE). The MLE is a statistical technique that given an assumed probability distribution, finds coefficients $\beta_0, \ldots, \beta_n$ such that these maximize the log likelihood function. In simple terms, given some observed data, the MLE $\beta$ coefficients are the most probable choice of coefficients.
+
+With the MLE done, we now see with some algebra that we can transform the LF function to get
+
+$$
+p = \frac{e^{\beta_0+ \beta_1x_1 + \ldots + \beta_nx_n}}{1 +e^{\beta_0+ \beta_1x_1 + \ldots + \beta_nx_n }}
+$$
+where $e$ is the natural log, $x_1, \ldots, x_n$ are the values of the independent variables, and $\beta_0, \ldots, \beta_n$ are the intercept and coefficients. It can be shown that $p \in [0,1],$ which aligns well with our intentions. As for the interpretation of the coefficients, note that they give us the change in log odds when a coefficient increases by one unit. We can exponentiate these values to get the interpretation for the odds. We say that the odds for $Y = 1$ *is this true* when all predictors have value 0 is $e^{\beta_0}.$ Similarly, we say that $e^{\beta_i}, 1 \leq i \leq n$ is the factor by which the odds change given a one unit increase in the predictor. We could also state that $(e^{\beta_i}-1)\cdot 100%$ is the percentage change in odds of $Y = 1$ for each predictor. Note that one we know the odds, we can easily get the probability by some simple algebra on the term $\frac{p}{1-p}.$
+
+<br>
+
+## HYPOTHESIS TEST FOR LOGISTIC REGRESSION
+
+<br>
+
+For each predictor $x_i,$ the hypothesis test is given by:
+
+$$
+H_0: \beta_i = 0 \\
+H_A: \beta_i \not = 0.
+$$
+The equation below, where $\hat{\beta_i}$ represents the estimated $\beta$ coefficient for $i$, states that $E(\hat{\beta_i}) = 0$, indicating the expected value of the estimated $\beta$ coefficient $i$. $\sigma_{\hat{\beta_i}}$ denotes the square root of the variance of the estimated $\beta$ coefficient $i$ (following a standard normal distribution), making the expression equivalent to the z-score. The term following the last equality sign is referred to as the Waldo statistic, enabling us to easily perform hypothesis tests by converting the z-scores into p-values using standard normal tables for z. It is worth noting that K-fold cross-validation can be employed to assess the model's quality. For a comprehensive explanation of the cross-validation process, please refer to our previous paper.
+
+$$
+\frac{\hat{\beta_i} - E(\hat{\beta_i})}{\sigma_{\hat{\beta_i}}} = \frac{\hat{\beta_i}}{\sigma_{\hat{\beta_i}}}
+$$
+
+
+<br>
+
+## GOODNESS OF FIT ASSESSMENT FOR LOGISTIC REGRESSION
+
+<br>
+
+Unlike in OLS regression, $R^2$ cannot be interpreted as the percentage of variance explained by the model. Higher $R^2$ values indicate better accuracy, but the measure is rarely used for Logistic Regression. Alternatively, the AIC can be used. AIC is a relative measure of the information that is lost when a given model is used to describe reality
+and can be said to describe the trade off between precision and complexity of the model. The AIC is given by:
+
+$$
+\text{AIC} = -2\log (p(y \mid \omega_{ML}))+2K 
+$$
+where y is some event and $\omega_{ML}$ is the value that maximizes the likelihood function for $y.$ Then $p(y \mid \omega_{ML})$ is the maximized value of the likelihood function for the model. It becomes evident that when comparing models, more negative models have a better goodness of fit due to their greater maximized value of their likelihood function.
+
+<br>
+
+## SENSITIVITY AND SPECIFICITY
+
+<br>
+
+We know that our model predicts values for an observation $i$ with
+
+$$
+\hat{y}_i = \frac{e^{\hat{\beta}_0+ \hat{\beta}_1x_{1i}+ \ldots \hat{\beta}_nx_{ni}}}{1+e^{\hat{\beta}_0+ \hat{\beta}_1x_{1i}+ \ldots \hat{\beta}_nx_{ni}}}
+$$
+where the interpretation for each term was given above, but now includes our estimate coefficients.
+
+The fitted values $\hat{y}_i$ for each $i$ now form a distribution that could be visualized in a histogram. Since our dependent variable is either 0 or 1, we now have to convert our fitted values to either 0 or 1. The method to do so includes so-called cutoff values. A cutoff value is a value between 0 and 1 such that all values for $\hat{y}_i$ below that threshold are evaluated as 0's, and all values equal to or above that value are evaluated as 1's. It becomes immediately clear that the quality of our model is extremely sensitive to the choice of cutoff value. We will later present ideas and techniques to identify an "optimal" cutoff value. For now, assume that some cutoff value is given. Then the following definitions hold.
+
+Sensitivity is given by
+
+$$
+\text{Sensitivity = } \frac{d} {b+d}
+$$
+where $d$ is the number of fitted values $\hat{y}_i$ above the cutoff value that are also true in the set of observed values, and $b$ is the number of fitted values $\hat{y}_i$ below the cutoff value (and therefore predicted to be false by our model) that are true in the set of observed values. Sensitivity therefore ranges between 0 and 1 and is the true positive rate as it shows us that given a cutoff value, how often our model correctly predicted a true value given all observed true values. Sensitivity is complementary to the false negative rate since $\text{False Negative Rate} = 1-\text{Sensitivity} = 1-\text{True Positive Rate}.$ With the above, it becomes clear that a good model has a high sensitivity.
+
+Specificity, on the other hand, is given by
+
+$$
+\text{Specificity = } \frac{a} {a+c}
+$$
+where $a$ is the number of fitted values $\hat{y}_i$ below the cutoff value that are false in the set of observed values, and $c$ is the number of fitted values $\hat{y}_i$ that are above the cutoff value (and therefore predicted to be true by our model) that are false in the set of observed values. Specificity therefore ranges between 0 and 1 and is the true negative rate as it shows us that given a cutoff value, how often our model correctly predicted a false value given all observed false values. Specificity is complementary to the false positive rate since $\text{False Positive Rate} = 1-\text{Specificity} = 1-\text{True Negative Rate}.$ With the above, it becomes clear that a good model has a high specificity.
+
+The misclassification rate is given by 
+
+$$
+\text{Misclassification Rate = } \frac{b+c}{a+b+c+d}
+$$
+and is the percentage of total observations in the dependent variable that were incorrectly estimated our fitted values $\hat{y}_i$ after applying a cutoff value on them. With the above, it becomes clear that a good model has a low misclassification rate. Further, the above explanation again emphasizes the core role that the choice of a cutoff value plays in logistic regression as virtually all measures of goodness of fit are dependent on it. But the goodness of fit is one key measure of the quality of our model. Hence, the cutoff value directly impacts the assessment of the quality of our model. It also illustrates that the optimal cutoff value is dependent on what the model is supposed to optimize for. 
+In certain applications, the repercussions of false negatives bear significant costs, whether in social or economic terms. Consequently, the optimal threshold is determined by maximizing the false negative rate. In other scenarios, the emphasis may be placed on the false positive rate. Put simply, the configuration of the confusion matrix is contingent upon the selection of the cutoff value.
+
+<br>
+
+## RECEIVER OPERATING CHARACTERISTIC CURVE (ROC)
+
+<br>
+
+The ROC curve plots the false positive rate (FPR) or 1, specificity, on the x-axis and true positive rate (TPR); or sensitivity, on the y-axis. It shows the trade off between FPR and TPR for each cutoff value. A point on the top right would mean that we correctly predict each true observation to be true and that every observation that was not true was incorrectly classified to be true. In other words, our model would be utterly useless. A point on the top left would mean that we correctly predict each true observation to be true and every false observation to be false. In other words, our model would be optimal. The 45 degree line in the ROC shows all possible combinations where the sum of specificity and sensitivity is 1. This implies that for each correctly predicted observation, we have one incorrectly predicted observation, rendering a model essentially worthless as it can't identify true values more reliably than a fair coin toss.
+
+<br>
+
+### OPTIMAL CUTOFF VALUE AND AREA UNDER CURVE (AUC)
+
+<br>
+
+Various best practices exist for determining an optimal cutoff value, depending on the specific goal or objective of the model. In general, points on the ROC curve that are toward the top left are preferred since they maximize TPR rate and minimize FPR. Another technique is the Youden Index that maximizes the sum of sensitivity and specificity. In this paper, we will use the minimum distance approach. The AUC, as the name suggests, is the total area under the ROC curve and ranges from 0 to 1. A model with an AUC of 1 is likely overfitting and therefore, difficult to generalize. If the model AUC is below 0.5, it means that the data contains enough information to get an AUC that is greater than 0.5, implying that there is likely a mistake in the modelling. 
+
+The AUC is a measure of accuracy of a model and is useful when two models are compared, since the model with the greater AUC usually has points on the ROC curve that are further to the top left than the other model given the same cutoff value. Since the ROC curve plots TPR and FPR, it can be interpreted as the probability that a model correctly predicts two randomly selected observations, one of which is true and one of which is false. Greater AUC values indicate the presence of a cutoff value at which both sensitivity and specificity for a model are relatively high. Given these explanations, any model below an AUC of 0.5 is a proven fail. A model that has an AUC between 0.5 and 0.7 is usually deemed poor, whereas models with AUC's between 0.7-0.8 are considered fair to good, and everything above is excellent. 
+
+<br>
+
+## ISSUES WITH LOGISTIC REGRESSION
+
+<br>
+
+Navigating the challenges posed by logistic regression requires a departure from the assumptions central to Ordinary Least Squares (OLS) regression. OLS relies on assumptions like a linear relationship between the dependent variable and predictors, normality of residuals, homoscedasticity, independence of observations, and absence of multicollinearity. However, logistic regression, a relevant choice when handling binary variables alongside continuous variables, deviates from these assumptions. Binary variables introduce a non-linear dimension that challenges the linear relationship postulated by OLS, and the nature of logistic regression demands a reevaluation of traditional assumptions. The departure from continuous variables in logistic regression calls for a refined approach, acknowledging the distinctive characteristics of the data at hand and prompting consideration of alternative statistical methodologies that better align with the mixed nature of the variables in question.
+
+<br>
+
+## LOGISTIC REGRESSION ASSUMPTIONS
+
+<br>
+
+The assumptions of logistic regression are:
+
+**1. Dependent Variable Is Binary:** The first assumption is evident since the whole LR model design is altered to predict binary outcomes.
+
+**2. Independence Of Observations:** A violation of the independence of observations has many implications, and we explained in depth in previous papers that a violation would severely impact the generalizability of the model since our predictor will be biased on the sample at hand. Additionally, we would have incorrect confidence intervals.
+
+**3. No Severe Multicolinearity:** The reason why we can allow for a small amount of multicolinearity in LR is that even though our model will be slightly skewed and imprecise, we are not likely to severely change the outcome since we work with cutoff values. In other words, multicolinearity is not wished for but allowing for some degree of it allows us to apply LR to more use cases. In our previous paper, we also discussed the implications of colinearity in that no additional information is provided to the model by a colinear variable and the regression outcome is skewed since the precision of some $\beta$ coefficients is weakened. For a more detailed explanation, check our previous paper.
+
+**4. At Least 50 Observations Per Independent Variable:** In general, as the number of observations per predictor increases, so does our confidence in the $\beta$ coefficient. 
+
+**5. The Log Odds Of Y = 1 Is Linearly Related To Each Predictor:** We had shown above that we regress the log odds on the independent variables in LR and therefore, this assumption is closely related to the linearity condition in standard OLS. This is necessary because our logit line is expected to exhibit a slightly curved shape, and thus, it necessitates at least some linear trend in the predictor to effectively capture the primary patterns within the sample data. Violations in the linearity condition are more the rule than the exception in many practical use cases. However, if several, significant predictors violate this assumption, one should start questioning the quality of the LR model. The Box-Tidwell test can be applied to test for this assumption.
+
+Note: When compared with OLS assumptions, we actually can have multicolinearity for LR. We also don't need homoscedasticity or normality of residuals. This is partly due to the fact that we use MLE to estimate our coefficients, and therefore, these two issues don't qualify our regression quality as much for some local parts of the regression line.
+
+<br>
+
+# **RESULTS**
+
+<br>
+
+## EXPLORATORY DATA ANALYSIS
+
+<br>
+
+```{r warning=FALSE, message=FALSE, cache=FALSE, include = FALSE }
+
+library(aod)
+library(rms)
+library(gmodels)
+library(nnet)
+library(DAAG)
+library(ROCR)
+library(knitr)
+library(kableExtra)
+library(xtable)
+library(dplyr)
+library(tidyverse)
+library(corrr)
+library(crosstable)
+library(caret)
+```
+
+```{r, include = FALSE}
+
+# Reading In Data Needed To Complete Assignment
+
+data <- read.csv("C:/Users/alecj/Desktop/HW03_Statistics_MUSA5000_FN/Logistic Regression Data.csv")
+
+```
+
+```{r}
+
+DRINKING_D.tab <- table(data$DRINKING_D)
+
+cbind(table(data$DRINKING_D),prop.table(DRINKING_D.tab)) %>%
+  kable(col.names = c("Driver Status", "Count","Proportion"), 
+      caption = "Categorizing The Dependent Variable: Driver Status") %>%
+  kable_styling(c("striped"), full_width = T, position = "left", font_size = 12, html_font = "Arial")
+
+```
+
+<br>
+
+In the table for DRINKING_D, we examine the counts and ratios of two categories: 0 (indicating no alcohol involvement) and 1 (indicating alcohol involvement). The majority of cases, almost 41,000 incidents or approximately 94%, were characterized by the absence of alcohol. In contrast, around 2,500 cases, constituting 5.7% of the total, involved drivers who had been drinking.
+
+<br>
+
+## CROSS-TABULATIONS WITH BINARY PREDICTORS
+
+<br>
+
+```{r, include = FALSE}
+
+ct1_pct <- CrossTable(data$DRINKING_D, data$FATAL_OR_M, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE)$prop.row[3:4]
+ct2_pct <- CrossTable(data$DRINKING_D, data$OVERTURNED, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE)$prop.row[3:4]
+ct3_pct <- CrossTable(data$DRINKING_D, data$CELL_PHONE, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE)$prop.row[3:4]
+ct4_pct <- CrossTable(data$DRINKING_D, data$SPEEDING, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE)$prop.row[3:4]
+ct5_pct <- CrossTable(data$DRINKING_D, data$AGGRESSIVE, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE)$prop.row[3:4]
+ct6_pct <- CrossTable(data$DRINKING_D, data$DRIVER1617, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE)$prop.row[3:4]
+ct7_pct <- CrossTable(data$DRINKING_D, data$DRIVER65PLUS, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE)$prop.row[3:4]
+
+ct1_n <- CrossTable(data$DRINKING_D, data$FATAL_OR_M, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE)$t[3:4]
+ct2_n <- CrossTable(data$DRINKING_D, data$OVERTURNED, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE)$t[3:4]
+ct3_n <- CrossTable(data$DRINKING_D, data$CELL_PHONE, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE)$t[3:4]
+ct4_n <- CrossTable(data$DRINKING_D, data$SPEEDING, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE)$t[3:4]
+ct5_n <- CrossTable(data$DRINKING_D, data$AGGRESSIVE, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE)$t[3:4]
+ct6_n <- CrossTable(data$DRINKING_D, data$DRIVER1617, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE)$t[3:4]
+ct7_n <- CrossTable(data$DRINKING_D, data$DRIVER65PLUS, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE)$t[3:4]
+
+```
+
+```{r, include = FALSE}
+
+ct_chi1 <- CrossTable(data$FATAL_OR_M, data$DRINKING_D, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE, chisq=TRUE)$chisq$p.value
+ct_chi2 <- CrossTable(data$OVERTURNED, data$DRINKING_D, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE, chisq=TRUE)$chisq$p.value
+ct_chi3 <- CrossTable(data$CELL_PHONE, data$DRINKING_D, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE, chisq=TRUE)$chisq$p.value
+ct_chi4 <- CrossTable(data$SPEEDING, data$DRINKING_D, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE, chisq=TRUE)$chisq$p.value
+ct_chi5 <- CrossTable(data$AGGRESSIVE, data$DRINKING_D, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE, chisq=TRUE)$chisq$p.value
+ct_chi6 <- CrossTable(data$DRIVER1617, data$DRINKING_D, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE, chisq=TRUE)$chisq$p.value
+ct_chi7 <- CrossTable(data$DRIVER65PLUS, data$DRINKING_D, prop.r=FALSE, prop.t=FALSE, prop.chisq=FALSE, chisq=TRUE)$chisq$p.value
+
+chi_vector <- c(ct_chi1, ct_chi2, ct_chi3, ct_chi4, ct_chi5, ct_chi6, ct_chi7)
+
+```
+
+```{r, include = FALSE}
+
+chi_table <- cbind(chi_vector,variable=c('FATAL_OR_M','OVERTURNED','CELL_PHONE','SPEEDING','AGGRESSIVE','DRIVER1617','DRIVER65PLUS')) %>%
+  as_data_frame()
+  
+```
+
+We begin by conducting cross-tabulations of our dependent variable with each binary predictor to assess the statistical significance using the Chi-squared test. The results reveal that, with the exception of CELL_PHONE, the Chi-squared test yields high values and p-values below 0.05 for all binary predictors, indicating a significant relationship with the dependent variable. Specifically, we reject the null hypothesis for variables such as aggressive drivers; 16-17 year old drivers; 65+ year old drivers; crashes with fatalities; crashes with overturned vehicles; and speeding cars. In simpler terms, the data suggests that there is a meaningful association between crashes involving a drunk driver and these factors, rejecting the notion that the probability of a crash involving a drunk driver is no different when the predictor equals 1 or 0, except in the case of CELL_PHONE.
+
+<br>
+
+```{r}
+df_cross_tab_pct <- cbind(DRINKING_D = c(0,1),ct1_pct, ct2_pct, ct3_pct, ct4_pct, ct5_pct, ct6_pct, ct7_pct) %>%
+  as_data_frame() %>%
+  rename(FATAL_OR_M = ct1_pct,
+         OVERTURNED = ct2_pct,
+         CELL_PHONE = ct3_pct,
+         SPEEDING = ct4_pct,
+         AGGRESSIVE = ct5_pct,
+         DRIVER1617 = ct6_pct,
+         DRIVER65PLUS = ct7_pct) %>%
+  gather(variable, value, -DRINKING_D) %>%
+  spread(key=DRINKING_D, value=value) %>%
+  rename("No_Drinking_pct" = "0",
+         "Drinking_pct" = "1")
+
+cbind(DRINKING_D = c(0,1),ct1_n, ct2_n, ct3_n, ct4_n, ct5_n, ct6_n, ct7_n) %>%
+  as_data_frame() %>%
+  rename(FATAL_OR_M = ct1_n,
+         OVERTURNED = ct2_n,
+         CELL_PHONE = ct3_n,
+         SPEEDING = ct4_n,
+         AGGRESSIVE = ct5_n,
+         DRIVER1617 = ct6_n,
+         DRIVER65PLUS = ct7_n) %>%
+  gather(variable, value, -DRINKING_D) %>%
+  spread(key=DRINKING_D, value=value) %>%
+  rename("No_Drinking_n" = "0",
+         "Drinking_n" = "1") %>%
+  left_join(.,df_cross_tab_pct,by='variable') %>%
+  mutate(Total = No_Drinking_n + Drinking_n,
+         Drinking_pct = round(Drinking_pct * 100,2),
+         No_Drinking_pct = round(No_Drinking_pct * 100,2)) %>%
+  select(variable, No_Drinking_n, No_Drinking_pct, Drinking_n, Drinking_pct,Total) %>%
+  left_join(.,chi_table,by='variable') %>%
+  kbl(col.names = c('Variable','N','%','N','%','Total','χ2 p-value')) %>%
+  kable_classic_2() %>%
+  add_header_above(header=c(" "=1,"No Alcohol Involved (DRINKING_D=0)"=2,"Alcohol Involved (DRINKING_D=1)"=2, " "=2))%>%
+  kable_styling(c("striped"), full_width = T, position = "left", font_size = 12, html_font = "Arial")
+
+```
+
+<br>
+
+## MEANS FOR CONTINUOUS VARIABLES
+
+<br>
+
+```{r, include = FALSE}
+
+data_group_mean <- data %>% dplyr::select(DRINKING_D,PCTBACHMOR,MEDHHINC) %>%
+  group_by(DRINKING_D) %>% summarise_at(vars(PCTBACHMOR,MEDHHINC),mean) %>%
+  gather(key='variable', value='mean', -DRINKING_D) %>%
+  spread(key=DRINKING_D,value=mean) %>%
+  rename("No_Drinking_mean" = "0",
+         "Drinking_mean" = "1")
+
+data_group_sd <- data %>% dplyr::select(DRINKING_D,PCTBACHMOR,MEDHHINC) %>%
+  group_by(DRINKING_D) %>% summarise_at(vars(PCTBACHMOR,MEDHHINC), sd) %>%
+  gather(key='variable', value='sd', -DRINKING_D) %>%
+  spread(key=DRINKING_D,value=sd) %>%
+  rename("No_Drinking_sd" = "0",
+         "Drinking_sd" = "1")
+
+```
+
+Here, we proceeded to conduct independent samples t-tests, revealing that the p-values for both MEDHHINC and PCTBACHMOR exceed 0.05. Consequently, we fail to reject the null hypothesis for these continuous variables, indicating that the average values of the predictor variables are similar for crashes involving drunk drivers and sober drivers. The high p-values from the t-tests suggest that there is no statistically significant difference in the average values of the continuous predictor variable between these two categories of crashes. In summary, there is a lack of compelling evidence to establish significant associations between our dependent variable DRINKING_D and the socioeconomic indicator of MEDHHINC or educational attainment represented by PCTBACHMOR.
+
+<br>
+
+```{r}
+
+t_PCTBACHMORE <- t.test(data$PCTBACHMOR~data$DRINKING_D)$p.value
+t_MEDHHINC <- t.test(data$MEDHHINC~data$DRINKING_D)$p.value
+
+t_vector = c(t_MEDHHINC,t_PCTBACHMORE)
+
+cbind(data_group_mean,data_group_sd %>% dplyr::select(-variable),t_vector) %>%
+  select(variable, Drinking_mean, Drinking_sd, No_Drinking_mean, No_Drinking_sd,t_vector) %>%
+  kbl(col.names = c('Variable','Mean','SD','Mean','SD','T-Test P-Value')) %>%
+  kable_classic_2() %>%
+  add_header_above(header=c(" " = 1, "Drinking" = 2,"No Drinking"=2, " "=1))%>%
+  kable_styling(c("striped"), full_width = T, position = "left", font_size = 12, html_font = "Arial")
+  
+```
+
+<br>
+
+## LOGISTIC REGRESSION ASSUMPTIONS
+
+<br>
+
+Three key assumptions of logistic regression include: (1) a binary dependent variable (DRINKING_D); (2) independent observations; and (3) the absence of severe multicollinearity. The dataset contains a large sample size, exceeding 43,000 observations and meeting the criterion of at least 50 observations per predictor. The binary nature of DRINKING_D ensures the fulfillment of the first assumption, and the independence of observations in recorded car accidents is confirmed. Multicollinearity develops when predictors are strongly correlated (r > 0.9 or r < -0.9), indicating redundancy. In such cases, we typically retain one predictor and eliminate others strongly correlated with it to avoid diminishing the model's predictive power. To assess multicollinearity among all predictors (both binary and continuous), we utilized Pearson correlations. Multicollinearity, typically defined by Pearson correlation coefficients exceeding 0.7 or 0.8, does not appear to be a concern based on the correlation matrix. An examination of the pairwise Pearson matrix reveals low to moderate correlations among most variables, indicating that multicollinearity may not significantly impact this set of predictors. It's important to note that Pearson correlations, designed for continuous variables, have limitations when applied to binary predictors due to their non-normal distribution and inability to capture nonlinear relationships.
+
+```{r, results='hide'}
+
+predictors <- data %>% dplyr::select(-CRN,-AREAKEY,-DRINKING_D)
+
+predictors %>% 
+  correlate() %>% 
+  autoplot() +
+  geom_text(aes(label = round(r,digits=2)),size = 3)
+    
+```
+
+<br>
+
+## LOGISTIC REGRESSION RESULTS
+
+<br>
+
+```{r logit model}
+
+logit = glm(formula = DRINKING_D ~ FATAL_OR_M + OVERTURNED + CELL_PHONE + SPEEDING + AGGRESSIVE + DRIVER1617 + DRIVER65PLUS + PCTBACHMOR + MEDHHINC, data = data, family = "binomial")
+
+logitoutput <- summary(logit)
+logitoutput
+```
+
+The presented findings display the outcomes of logistic regression involving all predictors. Notably, CELL_PHONE (indicating whether drivers were using cell phones) and PCTBACHMOR (representing the percentage of bachelor's degree holders in the census tract where the accident occurred) are the only variables that do not exhibit statistically significant associations with DRINKING_D (indicating whether drivers were intoxicated). As further illustrated in the table encompassing all nine predictors FATAL_OR_M, OVERTURNED, SPEEDING, AGGRESSIVE, DRIVER1617, and DRIVER65PLUS emerge as statistically significant predictors, as evidenced by their p-values falling below 0.05. Again, we see the variables PCTBACHMOR and CELL_PHONE do not have statistical significance.
+
+```{r, include = FALSE}
+
+#exp(cbind(OR = coef(logit), confint(logit)))
+
+logitoutput <- summary(logit)
+
+logitcoeffs <- logitoutput$coefficients
+#logitcoeffs
+
+or_ci <- exp(cbind(OR=coef(logit), confint(logit)))
+
+finallogitoutput <- cbind(logitcoeffs, or_ci)
+finallogitoutput
+```
+
+<br>
+
+## SENSITIVITY, SPECIFICITY, AND MISCLASSIFICATION RATE
+
+<br>
+
+```{r, include = FALSE}
+
+fit <- logit$fitted   
+
+```
+
+```{r, , include = FALSE}
+thresholds = c(0.02,0.03,0.05,00.07,0.08,0.09,0.1,0.15,0.2,0.5)
+sens = c()
+spec = c()
+mis_class = c()
+
+for (x in thresholds){
+  fit.binary = as.factor(ifelse(fit > x , 1, 0))
+  results <- caret::confusionMatrix(fit.binary, as.factor(data$DRINKING_D), positive = "1")
+  results_table <- results$table
+  sens <- append(sens,results$byClass[1] * 100)
+  spec <- append(spec,results$byClass[2]* 100)
+  mis_class <- append(mis_class, (1 - results$overall[1]) *100)}
+```
+
+
+```{r}
+
+cbind(thresholds,sens,spec,mis_class) %>%
+  as_data_frame() %>%
+  kbl(col.names=c("Threshold","Sensitivity (%)","Specificity (%)","Missclassification Rate (%)")) %>%
+  kable_classic_2() %>%
+  kable_styling(c("striped"), full_width = T, position = "left", font_size = 12, html_font = "Arial") %>%
+  row_spec(row = 10, background = "#A0D0D4", bold=T)
+  
+```
+
+<br>
+
+The presented table outlines the sensitivity, specificity, and misclassification rate corresponding to various thresholds. Broadly speaking, there is an observable trend: as the threshold value increases, sensitivity and the misclassification rate tend to decrease, while specificity shows an upward trend. Notably, the threshold yielding the lowest misclassification rate is 0.5, indicating optimal performance in terms of overall accuracy. On the other end of the spectrum, the threshold of 0.02 results in the highest misclassification rate. If the focus is solely on minimizing misclassifications, the threshold of 0.5 emerges as the most favorable choice based on the presented data. This would highlight the importance of selecting an appropriate threshold to strike a balance between sensitivity, specificity, and overall misclassification rates in the context of the analyzed data.
+
+<br>
+
+## ROC CURVE
+
+<br>
+
+```{r, include = FALSE}
+
+a <- cbind(data$DRINKING_D, fit)
+colnames(a) <- c("labels","predictions")
+
+roc <- as.data.frame(a)
+pred <- prediction(roc$predictions, roc$labels)
+```
+
+The depicted chart illustrates the Receiver Operating Characteristic (ROC) curve for our model, providing insights into its performance across various thresholds. The ROC curve effectively visualizes the trade-off between the true positive rate (sensitivity) and the false positive rate. It is observed that as the true positive rate increases, the false positive rate also experiences a rise. This relationship is a crucial aspect of evaluating model performance. Examining the ROC curve reveals that our model outperforms a random model, as evidenced by the curve consistently positioned above the diagonal line. This indicates a better-than-random ability to discriminate between positive and negative instances. However, a more detailed assessment suggests room for improvement, as the ROC curve shows a considerable distance from the top-left corner. This distance reflects a notable gap between sensitivity and specificity, indicating that there is potential for enhancing the model's discriminative power. While the model exhibits superiority over randomness, refining its performance to reduce this gap and move closer to the optimal point in the ROC space remains an area of consideration for further enhancement.
+
+```{r warning=FALSE, message=FALSE, cache=FALSE}
+roc.perf = performance(pred, measure = "tpr", x.measure="fpr")
+plot(roc.perf)
+abline(a=0,b=1)
+```
+
+We use the minimum distance approach to identify the threshold at which the distance from the top-left corner to the ROC curve is minimized. This method aids in pinpointing the threshold where both the sensitivity and specificity of the model predictions are concurrently optimized. The threshold that minimizes the distance from the ROC curve to the top-left corner is determined to be 0.06365151. At this specific threshold, the sensitivity registers at 0.66076459, while the specificity stands at 0.54524328. This threshold represents a balanced point where the model strikes an equilibrium between accurately identifying positive instances (sensitivity) and correctly identifying negative instances (specificity).
+
+```{r warning=FALSE, message=FALSE, cache=FALSE}
+opt.cut = function(perf, pred){
+  cut.ind = mapply(FUN=function(x, y, p){
+    d = (x - 0)^2 + (y-1)^2
+    ind = which(d == min(d))
+    c(sensitivity = y[[ind]], specificity = 1-x[[ind]], 
+      threshold = p[[ind]])
+  }, perf@x.values, perf@y.values, pred@cutoffs)
+}
+
+print(opt.cut(roc.perf, pred))
+```
+
+We evaluate the Area Under the Curve (AUC) as a metric to gauge the overall goodness of fit for our logistic model. A higher AUC value (approaching 1) signifies an enhanced capability of the model to identify a threshold that optimally balances both sensitivity and specificity. In our case, the computed AUC value is 0.6398695, indicating a suboptimal fit according to the conventional thresholds adhered to by statisticians. This AUC value corroborates our earlier inference that the ROC curve does not exhibit a robust fit. The model's performance, as reflected by the AUC, falls below the desired threshold for statistical significance. 
+
+```{r warning=FALSE, message=FALSE, cache=FALSE}
+auc.perf = performance(pred, measure ="auc")
+auc.perf@y.values
+```
+
+<br>
+
+## ALTERNATIVE LOGISTIC REGRESSION MODEL
+
+<br>
+
+We further investigated the relationship between binary variables and the outcome variable by conducting an alternative logistic regression that excluded continuous variables (PCTBACHMOR and MEDHHINC). This alternative model revealed no significant changes in the p-values of the β coefficients for most binary variables. All but CELL_PHONE remained statistically significant with p-values close to zero, indicating that their β coefficients are likely non-zero. However, the exclusion of continuous variables did lead to slight adjustments in the magnitudes of the β coefficients and odds ratios. Notably, the β coefficient for DRIVER1617 increased marginally by 0.01, and the β coefficient for CELL_PHONE also underwent a similar increase.
+
+```{r logit model2}
+
+logit2 = glm(formula = DRINKING_D ~ FATAL_OR_M + OVERTURNED + CELL_PHONE + SPEEDING + AGGRESSIVE + DRIVER1617 + DRIVER65PLUS, data = data, family = "binomial")
+
+summary(logit2)
+```
+
+
+```{r, include = FALSE}
+
+logitoutput2 <- summary(logit2)
+
+logitcoeffs2 <- logitoutput2$coefficients
+
+or_ci2 <- exp(cbind(OR=coef(logit2), confint(logit2)))
+```
+
+
+```{r}
+
+finallogitoutput2 <- cbind(logitcoeffs2, or_ci2)
+finallogitoutput2
+
+```
+
+<br>
+
+## AIC COMPARISON
+
+<br>
+
+The table presents AIC values for logistic regression models. The model encompassing all the predictors exhibits an AIC of 18359.63, while the model featuring only the binary predictors has an AIC of 18360.47. Given that the logistic regression with all the predictors yields a lower AIC value, we can infer that it demonstrates a superior fit.
+
+```{r AIC}
+test <- AIC(logit, logit2)
+
+AIC(logit, logit2) %>%
+  as_data_frame() %>%
+  mutate(Regression = c('Logistic Regression 1','Logistic Regression 2'),
+         df = df - 1) %>%
+  select(Regression, AIC) %>%
+  kbl(col.names = c("Regression", "AIC")) %>%
+  kable_classic_2() %>%
+  kable_styling(c("striped"), full_width = T, position = "left", font_size = 12, html_font = "Arial")
+```
+
+<br>
+
+# **DISCUSSION**
+
+<br>
+
+In our analysis of car crashes in Pennsylvania, we utilized data from the Department of Transportation, employing logistic regression models to predict the likelihood of a driver being drunk. The results highlighted speeding as the strongest predictor of crashes involving drunk drivers with the highest odds ratio. Other significant predictors included major injuries or fatalities, vehicle overturning, and aggressive driving. Age (under 18 or over 65) also played a role but to a lesser extent. Surprisingly, cell-phone use during a crash was not indicative of drunk driving, and an unexpected finding revealed a negative association between aggressive driving and drunk driving.
+
+Despite only 5% of total crashes involving drunk drivers, the substantial number (almost 2,500 cases) justified the use of logistic regression with the study suggesting consideration of penalized likelihood methodology for rare events. Acknowledging the model's overall poor fit, we propose further exploration of independent variables and additional data to enhance predictive power. Additionally, limitations included the use of Pearson's correlation for multicollinearity assessment, again suggesting further deliberation of alternative tests like the Variance Inflation Factor.
+
+The unexpected negative association between aggressive driving and drunk driving demands further investigation, challenging beliefs and prompting exploration of drunk driving related-incidents. In conclusion, our analysis not only highlighted unexpected associations but also critically evaluated the suitability of logistic regression for modeling alcohol-related accidents. To enhance the model, we recommend future investigations into additional independent variables, aspiring to achieve a higher AUC value than the current model's 0.64. This ongoing refinement aims to provide a more accurate understanding of the factors influencing alcohol-related crashes, contributing to the development of more effective preventive measures and interventions in road safety.
